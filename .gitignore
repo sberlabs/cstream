@@ -1,0 +1,6 @@
+*~
+*_temp
+*.log
+*.log.*
+*.pid
+*.gz
