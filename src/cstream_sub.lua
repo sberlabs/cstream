@@ -4,9 +4,12 @@
 
 require('ml').import()
 require('zhelpers')
-local cjson = require('cjson.safe')
-local cli   = require('cliargs')
-local zmq   = require('lzmq')
+local cjson  = require('cjson.safe')
+local cli    = require('cliargs')
+local statsd = require('statsd')({ host='127.0.0.1',
+                                   port=8125,
+                                   namespace='cstream.stats' })
+local zmq    = require('lzmq')
 
 local _VERSION = '0.0.1'
 
@@ -72,6 +75,7 @@ while true do
   if data then
     client:store_click(data)
     if args['d'] then printf('%i: %s\n', msg_nbr, tstring(data)) end
+    statsd:increment('clicks')
     valid_nbr = valid_nbr + 1
   end
   msg_nbr = msg_nbr + 1

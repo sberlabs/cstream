@@ -8,7 +8,7 @@ local redis = require('redis')
 
 local defaults = {
   host_port   = 'unix:/tmp/redis.sock',
-  expire_time = 240 -- TODO: set more realistic default value
+  expire_time = 60*60*24*365 -- one year
 }
 
 local function merge_defaults(parameters)
@@ -26,7 +26,8 @@ end
 local client_prototype = {}
 
 client_prototype.store_click = function(client, data)
-  local key = 'c=click:t=' .. data['sberlabspx']
+  local key = 'c=click:t=' .. data['id']
+  data['id'] = nil -- remove the key to save sove memory in redis
   assert(client.redis:lpush(key, cjson.encode(data)))
   assert(client.redis:ltrim(key, 0, 99))
   assert(client.redis:expire(key, client.expire_time))
