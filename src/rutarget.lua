@@ -26,7 +26,7 @@ end
 local client_prototype = {}
 
 client_prototype.store_click = function(client, data)
-  local key = 'c=click:t=' .. data['id']
+  local key = 'c=clicks:t=' .. data['id']
   data['id'] = nil -- remove the key to save sove memory in redis
   assert(client.redis:lpush(key, cjson.encode(data)))
   assert(client.redis:ltrim(key, 0, 99))
