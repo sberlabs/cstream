@@ -16,6 +16,7 @@
         - lua-cjson
         - lua-cmsgpack
         - lua_cliargs
+        - luacrypto
         - luasocket
         - lzmq
         - redis-lua

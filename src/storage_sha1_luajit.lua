@@ -6,7 +6,7 @@ local storage = {
 local cmsgpack = require('cmsgpack')
 local redis    = require('redis')
 local serpent  = require('serpent')
-local crypto   = require('crypto')
+local sha1     = require('sha1')
 
 local defaults = {
   host_port   = 'unix:/tmp/redis.sock',
@@ -53,8 +53,7 @@ client_prototype.save_click = function(client, click)
   --   - replace 'ua' in click with its binary hash
   local ua = click.ua
   if ua then
-    client.sha1:reset()
-    local ua_hash = client.sha1:final(ua) -- returns hex value
+    local ua_hash = sha1(ua) -- returns hex value
     local ua_data = hex_to_binary(ua_hash)
     client.redis:setnx('c=ua:h=' .. ua_hash, ua)
     click.ua = ua_data
@@ -119,7 +118,6 @@ local function create_client(proto, redis_client, parameters)
 
   client.redis = redis_client
   client.expire_time = parameters.expire_time
-  client.sha1 = crypto.digest.new('sha1')
   return client
 end
 
