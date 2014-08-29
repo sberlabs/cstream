@@ -14,21 +14,27 @@
       with_items:
         - lua-inih
         - lua-cjson
+        - lua-cmsgpack
         - lua_cliargs
         - luasocket
         - lzmq
         - redis-lua
+        - serpent
+        - sha1
         - statsd
       tags:
         - rocks
 
-    - name: copy lua files to bin directory
+    - name: copy ini and lua files to bin directory
       copy: src=src/{{ item }} dest={{ bin }}/
       with_items:
+        - cstream.ini
         - cstream_pub.lua
         - cstream_sub.lua
         - ml.lua
+        - print_clicks.lua
         - rutarget.lua
+        - storage.lua
         - zhelpers.lua
       tags:
         - scripts
@@ -38,6 +44,7 @@
       with_items:
         - cstream_pub.lua
         - cstream_sub.lua
+        - print_clicks.lua
       tags:
         - scripts
 

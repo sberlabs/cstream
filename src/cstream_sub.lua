@@ -4,12 +4,14 @@
 
 require('ml').import()
 require('zhelpers')
-local cjson  = require('cjson.safe')
-local cli    = require('cliargs')
-local statsd = require('statsd')({ host='127.0.0.1',
+local cjson   = require('cjson.safe')
+local cli     = require('cliargs')
+local serpent = require('serpent')
+local statsd  = require('statsd')({ host='127.0.0.1',
                                    port=8125,
                                    namespace='cstream.stats' })
-local zmq    = require('lzmq')
+local storage = require('storage')
+local zmq     = require('lzmq')
 
 local _VERSION = '0.0.1'
 
@@ -19,6 +21,7 @@ cli:add_argument('PORT', 'click stream publisher base port')
 cli:add_option('-p, --provider=NAME',
                "provider's module name to import data into redis", 'rutarget')
 cli:add_flag('-s, --sync', 'send sync request to publisher before subscribing')
+cli:add_flag('-x, --dryrun', 'do not store clicks, just receive them')
 cli:add_flag('-d, --debug', 'receiver will run in debug mode')
 cli:add_flag('-v, --version', "prints the program's version and exits")
 
@@ -56,8 +59,9 @@ if args['s'] then
   if args['d'] then printf("Synchronized\n") end
 end
 
+local dry_run = args['x']
 local provider = require(args['p'])
-local client = provider.new()
+local client = storage.new()
 
 if not client then
   return printf("error connecting to database: %s\n", err)
@@ -71,10 +75,15 @@ if args['d'] then printf("Waiting for incoming messages\n") end
 while true do
   local msg = subscriber:recv()
   if msg == "END" then break end
-  local data, err = cjson.decode(msg)
-  if data then
-    client:store_click(data)
-    if args['d'] then printf('%i: %s\n', msg_nbr, tstring(data)) end
+  local click, err = provider.parse_message(msg)
+  local id = click.id
+  if click then
+    if not dry_run then
+      client:save_click(click)
+    end
+    if args['d'] then
+      print(serpent.block(client:get_clicks(id)))
+    end
     statsd:increment('clicks')
     valid_nbr = valid_nbr + 1
   end
