@@ -105,6 +105,28 @@ client_prototype.get_clicks = function(client, id)
   return res
 end
 
+client_prototype.scan_clicks = function(client, fn, filters)
+  local keys = nil
+  local continue = true
+  local cursor = 0
+  filters = filters or { match='c=clicks:*' }
+
+  while continue do
+    local result = client.redis:scan(cursor, filters)
+
+    cursor = tonumber(result[1])
+    keys = result[2]
+
+    if keys then
+      for i, key in ipairs(keys) do
+        continue = fn(string.match(key, 'c=clicks:t=(.+)'))
+      end
+    end
+
+    continue = continue and (cursor ~= 0)
+  end
+end
+
 local function create_redis_client(parameters)
   local redis_client = redis.connect(parameters.host_port)
   return redis_client

@@ -19,9 +19,7 @@
         - luacrypto
         - luasocket
         - lzmq
-        - redis-lua
         - serpent
-        - sha1
         - statsd
       tags:
         - rocks
@@ -34,7 +32,9 @@
         - cstream_sub.lua
         - ml.lua
         - print_clicks.lua
+        - redis.lua
         - rutarget.lua
+        - show_stats.lua
         - storage.lua
         - zhelpers.lua
       tags:
@@ -46,6 +46,7 @@
         - cstream_pub.lua
         - cstream_sub.lua
         - print_clicks.lua
+        - show_stats.lua
       tags:
         - scripts
 
