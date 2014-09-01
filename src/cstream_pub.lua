@@ -2,12 +2,14 @@
 
 -- Synchronized click stream publisher
 
-require('ml').import()
-require('zhelpers')
+require('lib.ml').import()
+require('lib.zhelpers')
+
 local cjson  = require('cjson.safe')
 local cli    = require('cliargs')
 local inih   = require('inih')
 local socket = require('socket')
+local yaml   = require('yaml')
 local zmq    = require('lzmq')
 
 local _VERSION = '0.0.1'
@@ -110,7 +112,7 @@ end
 
 local fmt = parse_ini(args['f'])
 if args['d'] then
-  printf('%s parsed into the following table:\n%s\n', args['f'], tstring(fmt))
+  printf('%s parsed into the following table:\n%s\n', args['f'], yaml.dump(fmt))
 end
 
 local context = zmq.context()

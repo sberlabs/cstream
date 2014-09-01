@@ -1,12 +1,11 @@
 local storage = {
   _VERSION     = '0.0.1',
-  _DESCRIPTION = 'Click stream storage operations'
+  _DESCRIPTION = 'Click stream storage operations (redis version)'
 }
 
 local cmsgpack = require('cmsgpack')
-local redis    = require('redis')
-local serpent  = require('serpent')
-local sha1     = require('sha1')
+local redis    = require('lib.redis')
+local crypto   = require('crypto')
 
 local defaults = {
   host_port   = 'unix:/tmp/redis.sock',
@@ -39,33 +38,34 @@ end
 
 local client_prototype = {}
 
-client_prototype.save_click = function(client, click)
+client_prototype.save_event = function(client, event)
   -- 'id'' key must present in click
-  local id = click.id
-  if not id then return false end
+  local visitor = event.id
+  if not visitor then return false end
 
-  local key = 'c=clicks:t=' .. id
-  click.id = nil -- get rid of it, will store it in redis key
+  local key = 'c=clicks:t=' .. visitor
+  event.id = nil -- get rid of it, will store it in redis key
 
   -- compute sha1 hash of user agent string if 'ua' key exists in click,
   -- and then:
   --   - store ua sting in redis using its hex hash as a key
   --   - replace 'ua' in click with its binary hash
-  local ua = click.ua
+  local ua = event.ua
   if ua then
-    local ua_hash = sha1(ua) -- returns hex value
+    client.sha1:reset()
+    local ua_hash = client.sha1:final(ua) -- returns hex value
     local ua_data = hex_to_binary(ua_hash)
     client.redis:setnx('c=ua:h=' .. ua_hash, ua)
-    click.ua = ua_data
+    event.ua = ua_data
   end
 
-  local url = click.url
+  local url = event.url
   if url then
     -- leave only domain name of the server in 'url'
-    click.url = string.match(url, '^https*://([%w%.%-]+)/*')
+    event.url = string.match(url, '^https*://([%w%.%-]+)/*')
   end
 
-  assert(client.redis:lpush(key, cmsgpack.pack(click)))
+  assert(client.redis:lpush(key, cmsgpack.pack(event)))
   assert(client.redis:expire(key, client.expire_time))
 
   if math.random(1,100) == 1 then
@@ -76,18 +76,18 @@ client_prototype.save_click = function(client, click)
   return true
 end
 
-client_prototype.get_clicks = function(client, id)
-  local key = 'c=clicks:t=' .. id
-  local clicks = client.redis:lrange(key, 0, -1)
+client_prototype.get_events = function(client, visitor)
+  local key = 'c=clicks:t=' .. visitor
+  local events = client.redis:lrange(key, 0, -1)
   local uas = {}
-  local res = {}
+  local result = {}
 
-  for i, c in ipairs(clicks) do
-    res[i] = cmsgpack.unpack(c)
+  for i, c in ipairs(events) do
+    result[i] = cmsgpack.unpack(c)
 
     -- restore ua string from hash table
-    if res[i].ua then
-      local hex_hash = binary_to_hex(res[i].ua)
+    if result[i].ua then
+      local hex_hash = binary_to_hex(result[i].ua)
       local ua_text
 
       if uas[hex_hash] then
@@ -97,11 +97,33 @@ client_prototype.get_clicks = function(client, id)
         uas[hex_hash] = ua_text
       end
 
-      res[i].ua = ua_text
+      result[i].ua = ua_text
     end
   end
 
-  return res
+  return result
+end
+
+client_prototype.scan_events = function(client, fn, filters)
+  local keys = nil
+  local continue = true
+  local cursor = 0
+  filters = filters or { match='c=clicks:*' }
+
+  while continue do
+    local result = client.redis:scan(cursor, filters)
+
+    cursor = tonumber(result[1])
+    keys = result[2]
+
+    if keys then
+      for i, key in ipairs(keys) do
+        continue = fn(string.match(key, 'c=clicks:t=(.+)'))
+      end
+    end
+
+    continue = continue and (cursor ~= 0)
+  end
 end
 
 local function create_redis_client(parameters)
@@ -118,6 +140,7 @@ local function create_client(proto, redis_client, parameters)
 
   client.redis = redis_client
   client.expire_time = parameters.expire_time
+  client.sha1 = crypto.digest.new('sha1')
   return client
 end
 

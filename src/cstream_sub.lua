@@ -2,31 +2,35 @@
 
 -- Synchronized click stream subscriber
 
-require('ml').import()
-require('zhelpers')
+require('lib.zhelpers')
+
 local cjson   = require('cjson.safe')
 local cli     = require('cliargs')
-local serpent = require('serpent')
 local statsd  = require('statsd')({ host='127.0.0.1',
                                    port=8125,
                                    namespace='cstream.stats' })
-local storage = require('storage')
+local yaml    = require('yaml')
 local zmq     = require('lzmq')
 
 local _VERSION = '0.0.1'
 
 cli:set_name('cstream_sub.lua')
-cli:add_argument('ADDR', 'click stream publisher address')
-cli:add_argument('PORT', 'click stream publisher base port')
+
+cli:add_argument('ADDR', 'event stream publisher address')
+cli:add_argument('PORT', 'event stream publisher base port')
+
+cli:add_option('-s, --storage=TYPE',
+               'storage engine type: [redis|mongodb]', 'redis')
 cli:add_option('-p, --provider=NAME',
-               "provider's module name to import data into redis", 'rutarget')
-cli:add_flag('-s, --sync', 'send sync request to publisher before subscribing')
+               "message parser type: [rutarget]", 'rutarget')
+
 cli:add_flag('-x, --dryrun', 'do not store clicks, just receive them')
+cli:add_flag('-y, --sync', 'send sync request to publisher before subscribing')
+
 cli:add_flag('-d, --debug', 'receiver will run in debug mode')
 cli:add_flag('-v, --version', "prints the program's version and exits")
 
 local args = cli:parse_args()
-
 if not args then
   return
 end
@@ -34,6 +38,23 @@ end
 if args['v'] then
   return print('cstream_sub.lua: version ' .. _VERSION)
 end
+
+local provider
+if (args['p'] ~= 'rutarget') and (args['p'] ~= 'testprovider') then
+  return print('wrong message parser type, please see --help')
+else
+  provider = require('provider.' .. args['p'])
+end
+
+local storage
+local storage_engine = args['s']
+if (storage_engine == 'redis') or (storage_engine == 'mongodb') then
+  storage = require('storage.' .. storage_engine)
+else
+  return print('wrong storage engine type, please see --help')
+end
+
+local dry_run = args['x']
 
 local addr = args['ADDR']
 local port = tonumber(args['PORT'])
@@ -47,8 +68,8 @@ local subscriber, err = context:socket{zmq.SUB,
 }
 zassert(subscriber, err)
 
-if args['s'] then
-  -- sned sync request to publisher and wait for reply
+if args['y'] then
+  -- send sync request to publisher and wait for reply
   sleep(1)
   local syncclient = context:socket{zmq.REQ,
                                     connect = 'tcp://' .. addr .. ':' ..
@@ -59,12 +80,9 @@ if args['s'] then
   if args['d'] then printf("Synchronized\n") end
 end
 
-local dry_run = args['x']
-local provider = require(args['p'])
 local client = storage.new()
-
 if not client then
-  return printf("error connecting to database: %s\n", err)
+  return printf("error connecting to storage engine\n")
 end
 
 local msg_nbr = 0
@@ -74,19 +92,23 @@ if args['d'] then printf("Waiting for incoming messages\n") end
 
 while true do
   local msg = subscriber:recv()
-  if msg == "END" then break end
-  local click, err = provider.parse_message(msg)
-  local id = click.id
-  if click then
+
+  if args['d'] and (msg == "END") then break end
+
+  local event, err = provider.parse_message(msg)
+  local visitor = event.id
+
+  if event then
     if not dry_run then
-      client:save_click(click)
+      client:save_event(event)
     end
     if args['d'] then
-      print(serpent.block(client:get_clicks(id)))
+      print(yaml.dump(client:get_events(visitor)))
     end
     statsd:increment('clicks')
     valid_nbr = valid_nbr + 1
   end
+
   msg_nbr = msg_nbr + 1
 end
 
