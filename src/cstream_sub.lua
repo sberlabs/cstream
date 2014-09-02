@@ -2,7 +2,9 @@
 
 -- Synchronized click stream subscriber
 
-require('lib.zhelpers')
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
+require('zhelpers')
 
 local cjson   = require('cjson.safe')
 local cli     = require('cliargs')
@@ -22,7 +24,7 @@ cli:add_argument('PORT', 'event stream publisher base port')
 cli:add_option('-s, --storage=TYPE',
                'storage engine type: [redis|mongodb]', 'redis')
 cli:add_option('-p, --provider=NAME',
-               "message parser type: [rutarget]", 'rutarget')
+               "message parser type: [rutarget|testprovider]", 'rutarget')
 
 cli:add_flag('-x, --dryrun', 'do not store clicks, just receive them')
 cli:add_flag('-y, --sync', 'send sync request to publisher before subscribing')

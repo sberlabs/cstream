@@ -2,6 +2,8 @@
 
 -- Show misc stats from events store
 
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
 local cli  = require('cliargs')
 local yaml = require('yaml')
 
@@ -35,13 +37,19 @@ local client = storage.new()
 local count_visitors = 0
 local total_events = 0
 
+local function events_array_size(events)
+  if storage_engine == 'mongodb' then
+    return #events + 1
+  end
+  return #events
+end
+
 local scanner = function(max_count)
   max_count = max_count or -1
   return function(visitor, events)
     events = events or client:get_events(visitor)
-    print(visitor .. '\n' .. yaml.dump(events))
     count_visitors = count_visitors + 1
-    total_events = total_events + #events
+    total_events = total_events + events_array_size(events)
     if (max_count ~= -1) and (count_visitors >= max_count) then
       return false
     else

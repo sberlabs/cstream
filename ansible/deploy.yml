@@ -1,0 +1,70 @@
+---
+- hosts: all
+  remote_user: wal
+  vars:
+    program: "cstream"
+    luarocks: "/usr/local/openresty/luajit/bin/luarocks"
+    app: "/home/wal/{{ program }}"
+
+  tasks:
+    - name: ensure that needed luarocks are installed
+      sudo: yes
+      shell: "{{ luarocks }} install {{ item }}"
+      with_items:
+        - lua-inih
+        - lua-cjson
+        - lua-cmsgpack
+        - lua_cliargs
+        - luacrypto
+        - luasocket
+        - lzmq
+        - md5
+        - serpent
+        - statsd
+        - yaml
+      tags:
+        - rocks
+
+    - name: manually push mongol lua package
+      sudo: yes
+      synchronize: src=../contrib/mongol/mongol dest=/usr/local/openresty/luajit/share/lua/5.1
+      tags:
+        - rocks
+        - mongol
+
+    - name: ensure app directory exists
+      file: name={{ app }} state=directory
+      tags:
+        - common
+
+    - name: ensure logs directory exists
+      file: name={{ app }}/logs state=directory
+      tags:
+        - common
+
+    - name: push lib subdirectory
+      synchronize: src=../lib dest={{ app }}
+      tags:
+        - scripts
+
+    - name: push src subdirectory
+      synchronize: src=../src dest={{ app }}
+      tags:
+        - scripts
+
+    - name: push config subdirectory
+      synchronize: src=../config dest={{ app }}
+      tags:
+        - scripts
+
+    - name: copy supervisor config file for cstream_sub
+      sudo: yes
+      copy: src=../config/cstream.conf dest=/etc/supervisor/conf.d/cstream.conf
+      tags:
+        - supervisor
+
+    - name: restart supervisor
+      sudo: yes
+      service: name=supervisord state=restarted
+      tags:
+        - supervisor

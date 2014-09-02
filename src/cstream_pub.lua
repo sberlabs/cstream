@@ -2,8 +2,10 @@
 
 -- Synchronized click stream publisher
 
-require('lib.ml').import()
-require('lib.zhelpers')
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
+require('ml').import()
+require('zhelpers')
 
 local cjson  = require('cjson.safe')
 local cli    = require('cliargs')

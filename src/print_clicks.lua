@@ -1,5 +1,7 @@
 #!/usr/local/openresty/luajit/bin/luajit-2.1.0-alpha
 
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
 local cli  = require('cliargs')
 local yaml = require('yaml')
 

@@ -1,3 +1,5 @@
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
 local testprovider = {
   _VERSION     = '0.0.1',
   _DESCRIPTION = 'Click stream redis importer module for RuTarget'

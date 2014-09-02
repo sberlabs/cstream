@@ -1,3 +1,5 @@
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
 local storage = {
   _VERSION     = '0.0.1',
   _DESCRIPTION = 'Click stream storage operations (mongodb version)'
@@ -82,6 +84,7 @@ local function create_client(proto, mongo_conn, parameters)
   client.conn = mongo_conn
   client.db = mongo_conn:new_db_handle('cstream')
   client.history = parameters.history
+
   return client
 end
 
@@ -94,7 +97,6 @@ function storage.new(...)
     end
   end
 
-  math.randomseed(os.time())
   parameters = merge_defaults(parameters)
   local mongo_conn = create_mongo_connection(parameters)
   local client = create_client(client_prototype, mongo_conn, parameters)

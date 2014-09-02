@@ -1,3 +1,5 @@
+package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
+
 local storage = {
   _VERSION     = '0.0.1',
   _DESCRIPTION = 'Click stream storage operations (redis version)'
