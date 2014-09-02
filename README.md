@@ -5,12 +5,12 @@
 On the control machine (full install):
 
     $ git clone git@github.com:sberlabs/cstream.git
-    $ cd cstream
+    $ cd cstream/ansible
     $ ansible-playbook -i hosts -l prod deploy.yml
 
 Click stream subscriber daemon will be started automatically.
 
-To start/stop/restart click stream subscriber daemon, use:
+To start/stop/restart click stream subscriber daemon, on the host machine, use:
 
     $ sudo supervisorctl
     supervisor> stop cstream
