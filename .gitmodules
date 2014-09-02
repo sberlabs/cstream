@@ -1,0 +1,12 @@
+[submodule "contrib/mongol"]
+	path = contrib/mongol
+	url = https://github.com/daurnimator/mongol.git
+[submodule "contrib/redis-lua"]
+	path = contrib/redis-lua
+	url = https://github.com/nrk/redis-lua.git
+[submodule "contrib/Microlight"]
+	path = contrib/Microlight
+	url = https://github.com/stevedonovan/Microlight.git
+[submodule "contrib/lzmq"]
+	path = contrib/lzmq
+	url = https://github.com/zeromq/lzmq.git
