@@ -10,8 +10,8 @@ local yaml = require('yaml')
 local _VERSION = '0.0.1'
 
 cli:set_name('show_stats.lua')
-cli:add_option('-s, --storage=TYPE', 'storage engine type: [redis|mongodb]',
-               'redis')
+cli:add_option('-s, --storage=TYPE',
+               'storage engine type: [redis-server|mongodb]', 'redis')
 cli:add_option('-n, --size=N', 'number of visitors in sample', '1000')
 cli:add_flag('-c, --clicksavg', 'print average number of events per visitor,' ..
                ' use with -n option')
@@ -27,7 +27,7 @@ end
 local storage
 local storage_engine = args['s']
 
-if (storage_engine == 'redis') or (storage_engine == 'mongodb') then
+if (storage_engine == 'redis-server') or (storage_engine == 'mongodb') then
   storage = require('storage.' .. storage_engine)
 else
   return print('wrong storage type, please see --help')

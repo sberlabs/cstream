@@ -33,20 +33,34 @@ client_prototype.save_event = function(client, event)
   if not visitor then return false end
 
   event.id = nil
-  local update = {
-    ['$set']={
-      lu=os.time()
-    },
-    ['$push']={
-      events={
-        ['$each']={
-          event
-        },
-        ['$sort']={ ts=-1 },
-        ['$slice']=client.history
+  local update
+
+  if math.random(1,1000) == 1 then
+    update = {
+      ['$set']={
+        lu=os.time()
+      },
+      ['$push']={
+        events={
+          ['$each']={
+            event
+          },
+          ['$sort']={ ts=-1 },
+          ['$slice']=client.history
+        }
       }
     }
-  }
+  else
+    update = {
+      ['$set']={
+        lu=os.time()
+      },
+      ['$push']={
+        events=event
+      }
+    }
+  end
+
   client.db:update('events', { _id=visitor }, update, true, false)
 
   return true
@@ -97,6 +111,7 @@ function storage.new(...)
     end
   end
 
+  math.randomseed(os.time())
   parameters = merge_defaults(parameters)
   local mongo_conn = create_mongo_connection(parameters)
   local client = create_client(client_prototype, mongo_conn, parameters)

@@ -9,8 +9,8 @@ local _VERSION = '0.0.1'
 
 cli:set_name('print_events.lua')
 cli:add_argument('TAG', 'visitor cookie id')
-cli:add_option('-s, --storage=TYPE', 'storage engine type: [redis|mongodb]',
-               'redis')
+cli:add_option('-s, --storage=TYPE',
+               'storage engine type: [redis-server|mongodb]', 'redis')
 cli:add_flag('-v, --version', "prints the program's version and exits")
 
 local args = cli:parse_args()
@@ -26,7 +26,7 @@ end
 local storage
 local storage_engine = args['s']
 
-if (storage_engine == 'redis') or (storage_engine == 'mongodb') then
+if (storage_engine == 'redis-server') or (storage_engine == 'mongodb') then
   storage = require('storage.' .. storage_engine)
 else
   return print('wrong storage type, please see --help')

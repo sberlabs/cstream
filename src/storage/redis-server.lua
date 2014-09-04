@@ -6,7 +6,7 @@ local storage = {
 }
 
 local cmsgpack = require('cmsgpack')
-local redis    = require('lib.redis')
+local redis    = require('redis')
 local crypto   = require('crypto')
 
 local defaults = {

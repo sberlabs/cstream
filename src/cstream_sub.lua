@@ -22,7 +22,7 @@ cli:add_argument('ADDR', 'event stream publisher address')
 cli:add_argument('PORT', 'event stream publisher base port')
 
 cli:add_option('-s, --storage=TYPE',
-               'storage engine type: [redis|mongodb]', 'redis')
+               'storage engine type: [redis-server|mongodb]', 'redis')
 cli:add_option('-p, --provider=NAME',
                "message parser type: [rutarget|testprovider]", 'rutarget')
 
@@ -50,7 +50,7 @@ end
 
 local storage
 local storage_engine = args['s']
-if (storage_engine == 'redis') or (storage_engine == 'mongodb') then
+if (storage_engine == 'redis-server') or (storage_engine == 'mongodb') then
   storage = require('storage.' .. storage_engine)
 else
   return print('wrong storage engine type, please see --help')
