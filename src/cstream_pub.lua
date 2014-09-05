@@ -53,9 +53,11 @@ end
 
 local function parse_ini(filename)
   local data = {}
-  assert(inih.parse(filename, function(_section, name, value)
-    local i, typ = string.match(value, '^(%d+),(%a+)$')
-    data[tonumber(i)] = { name=name, typ=typ }
+  assert(inih.parse(filename, function(section, name, value)
+    if section == 'tsv' then
+      local i, typ = string.match(value, '^(%d+),(%a+)$')
+      data[tonumber(i)] = { name=name, typ=typ }
+    end
     return true
   end))
   return data
@@ -108,7 +110,7 @@ end
 
 local subscribers_expected = tonumber(args['s'])
 
-if subscribers_expected < 1 then
+if subscribers_expected < 0 then
   return print('invalid number of subscribers')
 end
 

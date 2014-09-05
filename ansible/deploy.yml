@@ -17,6 +17,7 @@
         - lua_cliargs
         - luacrypto
         - luasocket
+        - lua-llthreads2
         - lzmq
         - md5
         - serpent

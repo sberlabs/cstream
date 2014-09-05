@@ -6,6 +6,7 @@ local storage = {
 }
 
 local mongol = require('mongol')
+local crypto = require('crypto')
 
 local defaults = {
   host='localhost',
@@ -25,6 +26,12 @@ local function merge_defaults(parameters)
   return parameters
 end
 
+local function findOne(client, collection, query)
+  for k, v in client.db:find(collection, query):pairs() do
+    return v
+  end
+end
+
 local client_prototype = {}
 
 client_prototype.save_event = function(client, event)
@@ -33,6 +40,21 @@ client_prototype.save_event = function(client, event)
   if not visitor then return false end
 
   event.id = nil
+
+  local ua = event.ua
+  if ua then
+    client.sha1:reset()
+    local ua_hash = client.sha1:final(ua) -- returns hex value
+    event.ua = ua_hash
+    client.db:insert('uadict', {{ _id=ua_hash, ua=ua }}, true)
+  end
+
+  local url = event.url
+  if url then
+    -- leave only domain name of the server in 'url'
+    event.url = string.match(url, '^https*://([%w%.%-]+)/*')
+  end
+
   local update
 
   if math.random(1,1000) == 1 then
@@ -67,10 +89,27 @@ client_prototype.save_event = function(client, event)
 end
 
 client_prototype.get_events = function(client, visitor)
-  for i, v in client.db:find('events', { _id = visitor }):pairs() do
-    return v.events
+  local uas = {}
+  local result = findOne(client, 'events', { _id=visitor }).events
+
+  for i, c in ipairs(result) do
+    local hex_hash = c.ua
+
+    if hex_hash then
+      local ua_text
+
+      if uas[hex_hash] == nil then
+        ua_text = findOne(client, 'uadict', { _id=hex_hash }).ua
+        uas[hex_hash] = ua_text
+      else
+        ua_text = uas[hex_hash]
+      end
+
+      result[i].ua = ua_text
+    end
   end
-  return nil
+
+  return result
 end
 
 client_prototype.scan_events = function(client, fn, query)
@@ -97,7 +136,13 @@ local function create_client(proto, mongo_conn, parameters)
 
   client.conn = mongo_conn
   client.db = mongo_conn:new_db_handle('cstream')
+  if parameters.user and parameters.password then
+    print('authenticating user=' .. parameters.user ..
+            ' password=' .. parameters.password)
+    assert(client.db:auth(parameters.user, parameters.password))
+  end
   client.history = parameters.history
+  client.sha1 = crypto.digest.new('sha1')
 
   return client
 end
