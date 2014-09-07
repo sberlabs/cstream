@@ -57,6 +57,7 @@
       synchronize: src=../config dest={{ app }}
       tags:
         - scripts
+        - config
 
     - name: copy supervisor config file for cstream_sub
       sudo: yes
