@@ -98,8 +98,6 @@ for k, v in pairs(config['stream']) do
     num_clients = num_clients + 1
     client_tasks[k] = init_thread .. [[
 
-      local dry_run  = ]] .. tostring(args['x']) .. [[
-
       local provider = ']] .. k .. [['
 
       local subscriber, err = context:socket{ zmq.SUB,
@@ -118,12 +116,8 @@ for k, v in pairs(config['stream']) do
       while true do
         local msg = subscriber:recv()
         local event = { provider=provider, msg=msg }
-
-        if not dry_run then
-          client:send(cmsgpack.pack(event))
-          local reply = client:recv()
-        end
-
+        client:send(cmsgpack.pack(event))
+        local reply = client:recv()
         statsd:increment('client.' .. provider .. '.events')
       end
     ]]
@@ -136,54 +130,73 @@ local worker_tasks = {}
 local num_workers = 0
 
 for k, v in pairs(config['worker']) do
-  num_workers = num_workers + tonumber(v.instances)
-  worker_tasks[k] = init_thread .. [[
+  if v.active == '1' then
+    num_workers = num_workers + tonumber(v.instances)
+    worker_tasks[k] = init_thread .. [[
 
-    local providers = require('providers')
-    local group = ']] .. k .. [['
-    local config = CONFIG['worker'][group]
+      local providers = require('providers')
+      local group = ']] .. k .. [['
+      local config = CONFIG['worker'][group]
 
-    -- Init storage engine client
-    local storage = require('storage.' .. config.engine)
-    local storage_parameters = { host=config.host,
-                                 port=config.port,
-                                 history=config.history }
+      -- Init storage engine client
+      local storage = require('storage.' .. config.engine)
+      local storage_parameters = { host=config.host,
+                                   port=config.port,
+                                   history=config.history }
 
-    if config.user and config.password then
-      storage_parameters.user = config.user
-      storage_parameters.password = config.password
-    end
+      if config.user and config.password then
+        storage_parameters.user = config.user
+        storage_parameters.password = config.password
+      end
 
-    local storage_client = storage.new(storage_parameters)
-    local worker, err = context:socket{ zmq.REQ,
-                                        connect = BACKEND }
-    zassert(worker, err)
+      local storage_client = storage.new(storage_parameters)
+      local worker, err = context:socket{ zmq.REQ,
+                                          connect = BACKEND }
+      zassert(worker, err)
 
-    sleep(1)
+      sleep(1)
 
-    -- Tell broker we're ready for work
-    worker:send("READY")
+      -- Tell broker we're ready for work
+      worker:send("READY")
 
-    while true do
-      local identity, empty, request = worker:recvx()
-      assert(empty == "")
+      while true do
+        local identity, empty, request = worker:recvx()
+        assert(empty == "")
 
-      local timer = zmq.utils.stopwatch():start()
-      event = cmsgpack.unpack(request)
-      data = providers.parse_msg(event.provider, event.msg)
-      storage_client:save_event(data)
+        local timer = zmq.utils.stopwatch():start()
+        event = cmsgpack.unpack(request)
+        data = providers.parse_msg(event.provider, event.msg)
+        storage_client:save_event(data)
 
-      worker:sendx(identity, "", "OK")
+        statsd:increment('worker.' .. group .. '.events')
+        statsd:histogram('worker.' .. group .. '.latency', timer:stop())
 
-      statsd:increment('worker.' .. group .. '.events')
-      statsd:histogram('worker.' .. group .. '.latency', timer:stop())
-    end
-  ]]
+        worker:sendx(identity, "", "OK")
+      end
+    ]]
+  end
 end
 
 -- main task (request broker)
 
 local context = zmq.context()
+
+if args['x'] then
+   -- dry run, recieve messages and do nothing
+   local subscriber, err = context:socket{ zmq.SUB,
+                                           subscribe = '',
+                                           connect = 'tcp://' ..
+                                                     config['stream']['rutarget'].host ..
+                                              ':' .. config['stream']['rutarget'].port }
+
+   zassert(subscriber, err)
+   sleep(1)
+
+   while true do
+     local msg = subscriber:recv()
+     statsd:increment('client.rutarget.dryrun.events')
+   end
+end
 
 local frontend, err = context:socket{ zmq.ROUTER,
                                       bind = FRONTEND }
