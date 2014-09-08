@@ -28,7 +28,7 @@
 
     - name: manually push mongol lua package
       sudo: yes
-      synchronize: src=../contrib/mongol/mongol dest=/usr/local/openresty/luajit/share/lua/5.1
+      synchronize: src=../lib/mongol dest=/usr/local/openresty/luajit/share/lua/5.1
       tags:
         - rocks
         - mongol
