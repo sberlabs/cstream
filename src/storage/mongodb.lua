@@ -7,11 +7,15 @@ local storage = {
 
 local mongol = require('mongol')
 local crypto = require('crypto')
+local yaml   = require('yaml')
 
 local defaults = {
   host='localhost',
   port=27017,
-  history=100
+  history=100,
+  bufsize=1000,
+  writeconcern=0,
+  journaled=false
 }
 
 local function merge_defaults(parameters)
@@ -34,6 +38,10 @@ end
 
 local client_prototype = {}
 
+local ua_cache = {}
+
+local updates_pending = {}
+
 client_prototype.save_event = function(client, event)
   local visitor = event.id
 
@@ -46,7 +54,10 @@ client_prototype.save_event = function(client, event)
     client.sha1:reset()
     local ua_hash = client.sha1:final(ua) -- returns hex value
     event.ua = ua_hash
-    client.db:insert('uadict', {{ _id=ua_hash, ua=ua }}, true)
+    if ua_cache[ua_hash] == nil then
+      client.db:insert('uadict', {{ _id=ua_hash, ua=ua }}, true)
+      ua_cache[ua_hash] = 1
+    end
   end
 
   local url = event.url
@@ -83,7 +94,21 @@ client_prototype.save_event = function(client, event)
     }
   end
 
-  client.db:update('events', { _id=visitor }, update, true, false)
+  updates_pending[#updates_pending+1] = { q={ _id=visitor },
+                                          u=update,
+                                          upsert=true,
+                                          multi=false }
+
+  if #updates_pending == client.bufsize then
+    local r, err = client.db:bulk_update('events',
+                                        updates_pending,
+                                        false, -- not ordered
+                                        { w=client.writeconcern,
+                                          j=client.journaled })
+
+    assert(r, err)
+    updates_pending = {}
+  end
 
   return true
 end
@@ -136,12 +161,15 @@ local function create_client(proto, mongo_conn, parameters)
 
   client.conn = mongo_conn
   client.db = mongo_conn:new_db_handle('cstream')
+
   if parameters.user and parameters.password then
-    print('authenticating user=' .. parameters.user ..
-            ' password=' .. parameters.password)
     assert(client.db:auth(parameters.user, parameters.password))
   end
+
   client.history = parameters.history
+  client.bufsize = parameters.bufsize
+  client.writeconcern = parameters.writeconcern
+  client.journaled = parameters.journaled
   client.sha1 = crypto.digest.new('sha1')
 
   return client

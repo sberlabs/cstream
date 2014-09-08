@@ -66,123 +66,165 @@ end
 local dry_run = args['x']
 local config = parse_ini(args['f'])
 
--- common tasks code
-
-local init_thread = [[
+local include = [[
   package.path = '../lib/?.lua;../lib/?/?.lua;' .. package.path
 
   require('zhelpers')
   local cmsgpack = require('cmsgpack')
-  local yaml = require('yaml')
-  local zmq = require('lzmq')
-  local statsd  = require('statsd')({ host='127.0.0.1',
-                                      port=8125,
-                                      namespace='cstream' })
-  local context = zmq.context()
-
-  local FRONTEND = ]] .. ('%q'):format(FRONTEND) .. [[
-
-  local BACKEND = ]]  .. ('%q'):format(BACKEND)  .. [[
-
-  local CONFIG = ]] .. serpent.block(config, { comment=false }) .. [[
-
+  local yaml     = require('yaml')
+  local zmq      = require('lzmq')
+  local zthreads = require('lzmq.threads')
+  local ztimer   = require('lzmq.timer')
+  local zpoller  = require('lzmq.poller')
+  local statsd   = require('statsd')({ host='127.0.0.1',
+                                       port=8125,
+                                       namespace='cstream' })
 ]]
 
--- initialize client tasks' code
+local init_client = include .. [[
+  local CONFIG = ]] .. serpent.block(config, { comment=false }) .. [[
+  local FRONTEND = ]] .. ('%q'):format(FRONTEND) .. [[
+  local BACKEND = ]]  .. ('%q'):format(BACKEND)  .. [[
+  local context = zmq.context()
+]]
 
-local client_tasks = {}
-local num_clients = 0
+local init_worker = include .. [[
+  local CONFIG = ]] .. serpent.block(config, { comment=false }) .. [[
+  local FRONTEND = ]] .. ('%q'):format(FRONTEND) .. [[
+  local BACKEND = ]]  .. ('%q'):format(BACKEND)  .. [[
+  local context = zthreads.get_parent_ctx()
+]]
 
-for k, v in pairs(config['stream']) do
-  if v.active == '1' then
-    num_clients = num_clients + 1
-    client_tasks[k] = init_thread .. [[
+local client_task = init_client .. [[
+  local config = CONFIG['stream'][provider]
+  local subscriber, err = context:socket{ zmq.SUB,
+                                          subscribe = '',
+                                          connect = 'tcp://' ..
+                                            config.host .. ':' ..
+                                            config.port }
 
-      local provider = ']] .. k .. [['
+  zassert(subscriber, err)
 
-      local subscriber, err = context:socket{ zmq.SUB,
-                                              subscribe = '',
-                                              connect = 'tcp://'
-                                              ..']] .. v.host .. [[' .. ':'
-                                              ..']] .. v.port .. [[' }
-      zassert(subscriber, err)
+  local client, err = context:socket{ zmq.DEALER,
+                                      connect = FRONTEND }
+  zassert(client, err)
 
-      local client, err = context:socket{ zmq.REQ,
-                                          connect = FRONTEND }
-      zassert(client, err)
+  local poller = zpoller.new(2)
 
-      sleep(1)
+  poller:add(subscriber, zmq.POLLIN, function()
+    local msg = subscriber:recv()
+    local event = { provider=provider, msg=msg, ts=ztimer.absolute_time() }
+    client:send(cmsgpack.pack(event))
+    statsd:increment('client.' .. provider .. '.events')
 
-      while true do
-        local msg = subscriber:recv()
-        local event = { provider=provider, msg=msg }
-        client:send(cmsgpack.pack(event))
-        local reply = client:recv()
-        statsd:increment('client.' .. provider .. '.events')
-      end
-    ]]
+    -- print('CLIENT EVENT:\n', yaml.dump(msg))
+
+  end)
+
+  poller:add(client, zmq.POLLIN, function()
+    local reply = client:recv_all()
+
+    -- print('REPLY:', yaml.dump(reply))
+
+    local ts = tonumber(reply[#reply])
+    statsd:histogram('client.' .. provider .. '.rtt',
+                       ztimer.absolute_elapsed(ts))
+
+    -- print('RTT:', ztimer.absolute_delta(ztimer.absolute_time(), ts))
+
+  end)
+
+  poller:start()
+]]
+
+local worker_task = init_worker .. [[
+  local providers = require('providers')
+  local config = CONFIG['worker'][group]
+
+  -- Init storage engine client
+  assert(config.engine, 'storage engine name is absent in config file')
+  local storage = require('storage.' .. config.engine)
+
+  assert(config.host, 'storage engine host absent in config file')
+  assert(config.port, 'storage engine port absent in config file')
+  local b = config.bufsize and tonumber(config.bufsize) or 1000
+  local h = config.history and tonumber(config.history) or 100
+  local w = config.writeconcern and tonumber(config.writeconcern) or 0
+
+  if config.journaled then
+    j = (tonumber(config.journaled) == 1)
+  else
+    j = false
   end
-end
 
--- initialize worker tasks' code
+  local storage_parameters = { host=config.host,
+                               port=tonumber(config.port),
+                               history=h,
+                               bufsize=b,
+                               writeconcern=w,
+                               journaled=j }
 
-local worker_tasks = {}
-local num_workers = 0
+  -- print(yaml.dump(storage_parameters))
 
-for k, v in pairs(config['worker']) do
-  if v.active == '1' then
-    num_workers = num_workers + tonumber(v.instances)
-    worker_tasks[k] = init_thread .. [[
-
-      local providers = require('providers')
-      local group = ']] .. k .. [['
-      local config = CONFIG['worker'][group]
-
-      -- Init storage engine client
-      local storage = require('storage.' .. config.engine)
-      local storage_parameters = { host=config.host,
-                                   port=config.port,
-                                   history=config.history }
-
-      if config.user and config.password then
-        storage_parameters.user = config.user
-        storage_parameters.password = config.password
-      end
-
-      local storage_client = storage.new(storage_parameters)
-      local worker, err = context:socket{ zmq.REQ,
-                                          connect = BACKEND }
-      zassert(worker, err)
-
-      sleep(1)
-
-      -- Tell broker we're ready for work
-      worker:send("READY")
-
-      while true do
-        local identity, empty, request = worker:recvx()
-        assert(empty == "")
-
-        local timer = zmq.utils.stopwatch():start()
-        event = cmsgpack.unpack(request)
-        data = providers.parse_msg(event.provider, event.msg)
-        storage_client:save_event(data)
-
-        statsd:increment('worker.' .. group .. '.events')
-        statsd:histogram('worker.' .. group .. '.latency', timer:stop())
-
-        worker:sendx(identity, "", "OK")
-      end
-    ]]
+  if config.user and config.password then
+    storage_parameters.user = config.user
+    storage_parameters.password = config.password
   end
-end
 
--- main task (request broker)
+  local storage_client = storage.new(storage_parameters)
 
-local context = zmq.context()
+  local worker, err = context:socket{ zmq.DEALER,
+                                      connect = BACKEND }
+  zassert(worker, err)
+
+  print('Worker', group, 'inited.')
+
+  while true do
+    local identity, request = worker:recvx()
+    assert(identity and request)
+
+    local timer = zmq.utils.stopwatch():start()
+
+    event = cmsgpack.unpack(request)
+    data = providers.parse_msg(event.provider, event.msg)
+
+    -- print('WORKER DATA:\n', yaml.dump(data))
+    -- print('WORKER TS  :', event.ts)
+
+    storage_client:save_event(data)
+
+    worker:sendx(identity, tostring(event.ts))
+
+    statsd:increment('worker.' .. group .. '.events')
+    statsd:histogram('worker.' .. group .. '.latency', timer:stop())
+  end
+]]
+
+local main_task = init_client .. [[
+  local frontend, err = context:socket{ zmq.ROUTER,
+                                        bind = FRONTEND }
+  zassert(frontend, err)
+
+  local backend,  err = context:socket{ zmq.DEALER,
+                                        bind = BACKEND }
+  zassert(backend, err)
+
+  for group, worker in pairs(CONFIG['worker']) do
+    if worker.active then
+      for i = 1, tonumber(worker.instances) do
+        zthreads.run(context, 'local group = ' .. string.format('%q', group) ..
+                       '\n' .. ]] .. string.format('%q', worker_task) ..[[):start(true)
+        sleep(1)
+      end
+    end
+  end
+
+  zmq.proxy(frontend, backend)
+]]
 
 if args['x'] then
    -- dry run, recieve messages and do nothing
+   local context = zmq.context()
    local subscriber, err = context:socket{ zmq.SUB,
                                            subscribe = '',
                                            connect = 'tcp://' ..
@@ -198,86 +240,22 @@ if args['x'] then
    end
 end
 
-local frontend, err = context:socket{ zmq.ROUTER,
-                                      bind = FRONTEND }
-zassert(frontend, err)
+print('Begin threads initialization...')
 
-local backend,  err = context:socket{ zmq.ROUTER,
-                                      bind = BACKEND }
-zassert(backend, err)
-
-print('Launching worker threads...')
-
--- Launch pool of worker threads
-for k, worker_task in pairs(worker_tasks) do
-  for i = 1, tonumber(config['worker'][k].instances) do
-    zthreads.run(context, worker_task):start(true)
+-- Launch pool of client threads
+for name, stream in pairs(config['stream']) do
+  if stream.active then
+    zthreads.run(nil, 'local provider = ' .. string.format('%q', name) ..
+                   '\n' .. client_task):start(true)
     sleep(1)
   end
 end
 
-print('Launching client threads...')
+zthreads.run(nil, main_task):start(true)
 
--- Launch pool of client threads
-for k, client_task in pairs(client_tasks) do
-  zthreads.run(context, client_task):start(true)
-  sleep(1)
+print('Initialization is done.')
+
+-- zthreads.join()
+while true do
+  sleep(5)
 end
-
-local worker_queue = {}
-
-local poller = zpoller.new(2)
-
-local function frontend_cb()
-  assert (#worker_queue > 0)
-
-  -- Now get next client request, route to last-used worker
-  -- Client request is [identity][empty][request]
-  local msg = frontend:recv_all()
-  assert(msg[2] == "")
-
-  local worker_id = tremove(worker_queue, 1)
-  backend:sendx_more(worker_id, "")
-  backend:send_all(msg)
-end
-
--- Handle worker activity on backend
-local function backend_cb()
-  assert (#worker_queue < num_workers)
-
-  -- Queue worker identity for load-balancing
-  local worker_id = backend:recv()
-  tinsert(worker_queue, worker_id)
-
-  -- Second frame is empty
-  local empty = backend:recv()
-  assert(empty == "")
-
-  -- Third frame is READY or else a client reply identity
-  local client_id = backend:recv()
-
-  -- If client reply, send rest back to frontend
-  if client_id ~= "READY" then
-    empty = backend:recv()
-    assert(empty == "")
-
-    local reply = backend:recv()
-    frontend:send_all{client_id, "", reply}
-  end
-end
-
-poller:add(backend, zmq.POLLIN, function()
-  local n = #worker_queue
-  backend_cb()
-  if (n == 0) and (#worker_queue > 0) then
-    poller:add(frontend, zmq.POLLIN, function()
-      frontend_cb()
-      if #worker_queue == 0 then poller:remove(frontend) end
-    end)
-  end
-end)
-
-print('Running with ' .. num_clients .. ' client and ' ..
-        num_workers .. ' worker threads.')
-
-poller:start()
