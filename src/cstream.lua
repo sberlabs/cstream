@@ -127,8 +127,8 @@ local client_task = init_client .. [[
     -- print('REPLY:', yaml.dump(reply))
 
     local ts = tonumber(reply[#reply])
-    statsd:histogram('client.' .. provider .. '.rtt',
-                       ztimer.absolute_elapsed(ts))
+    statsd:timer('client.' .. provider .. '.rtt',
+                 ztimer.absolute_elapsed(ts))
 
     -- print('RTT:', ztimer.absolute_delta(ztimer.absolute_time(), ts))
 
@@ -196,7 +196,8 @@ local worker_task = init_worker .. [[
     worker:sendx(identity, tostring(event.ts))
 
     statsd:increment('worker.' .. group .. '.events')
-    statsd:histogram('worker.' .. group .. '.latency', timer:stop())
+    statsd:timer('worker.' .. group .. '.latency',
+                 timer:stop())
   end
 ]]
 
